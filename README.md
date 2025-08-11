@@ -42,7 +42,7 @@
     * `flvmux` 将 H.264 码流封装为 FLV 格式。
     * `rtmpsink` 将最终的视频流推送到指定的 RTMP 服务器。
 
-![Workflow Diagram](https://i.imgur.com/your-diagram-placeholder.png)  ## 🛠️ 环境准备与运行
+## 🛠️ 环境准备与运行
 
 ### 先决条件
 
