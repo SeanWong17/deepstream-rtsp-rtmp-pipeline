@@ -55,7 +55,7 @@
 
 1.  **克隆项目**
     ```bash
-    git clone [https://github.com/your-username/deepstream-rtsp-rtmp-pipeline.git](https://github.com/your-username/deepstream-rtsp-rtmp-pipeline.git)
+    git clone [https://github.com/SeanWong17/deepstream-rtsp-rtmp-pipeline.git](https://github.com/SeanWong17/deepstream-rtsp-rtmp-pipeline.git)
     cd deepstream-rtsp-rtmp-pipeline
     ```
 
