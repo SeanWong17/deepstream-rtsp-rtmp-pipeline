@@ -55,7 +55,7 @@
 
 1.  **克隆项目**
     ```bash
-    git clone [https://github.com/SeanWong17/deepstream-rtsp-rtmp-pipeline.git](https://github.com/SeanWong17/deepstream-rtsp-rtmp-pipeline.git)
+    git clone https://github.com/SeanWong17/deepstream-rtsp-rtmp-pipeline.git
     cd deepstream-rtsp-rtmp-pipeline
     ```
 
@@ -71,10 +71,11 @@
     if __name__ == "__main__":
         rtsp_url = "rtsp://your.rtsp.stream/url"  # 你的RTSP输入地址
         rtmp_url = "rtmp://your.rtmp.server/live/stream_key" # 你的RTMP输出地址
-        width = 1920
-        height = 1080
+        width = 1920   # 输出到处理/推流链路的帧宽度
+        height = 1080  # 输出到处理/推流链路的帧高度
         # ...
     ```
+    `width` 和 `height` 用于约束 `appsink/appsrc` 之间处理链路的输出分辨率；程序会从实际解码出的 sample caps 中读取真实帧尺寸和 stride，避免直接按裸 buffer 强行 reshape。
 
 4.  **运行容器**
     使用以下命令启动容器，它将自动运行处理程序。

@@ -10,6 +10,12 @@ import threading
 import time
 import logging
 
+
+def gst_quote(value):
+    """Quote string values passed into Gst.parse_launch property assignments."""
+    escaped = value.replace("\\", "\\\\").replace("'", "\\'")
+    return f"'{escaped}'"
+
 class DeepStreamProcessor:
     """
     深度流处理脚手架:
@@ -48,7 +54,8 @@ class DeepStreamProcessor:
         self.appsrc = None
 
         # 用于在解码线程与处理/推流之间交换帧
-        self.frame_queue = queue.Queue(maxsize=100)
+        # Keep the queue short so the pipeline stays close to real-time under load.
+        self.frame_queue = queue.Queue(maxsize=5)
         self.frame_count = 0
         self._lock = threading.Lock()
 
@@ -57,8 +64,9 @@ class DeepStreamProcessor:
         从RTSP拉流，解码并输出BGR格式CPU侧帧。
         注意加上queue，适当控制流量/缓冲。
         """
+        quoted_rtsp_url = gst_quote(self.rtsp_url)
         decode_pipeline_desc = f"""
-            rtspsrc location={self.rtsp_url} latency=100 do-retransmission=true !
+            rtspsrc location={quoted_rtsp_url} latency=100 do-retransmission=true !
             queue !
             rtph264depay ! h264parse !
             nvv4l2decoder !
@@ -76,6 +84,7 @@ class DeepStreamProcessor:
         """
         接收CPU侧帧，通过appsrc打包后，H.264编码并推送到RTMP。
         """
+        quoted_rtmp_url = gst_quote(self.rtmp_url)
         encode_pipeline_desc = f"""
             appsrc name=appsrc0 emit-signals=true is-live=true do-timestamp=true block=true format=time !
             video/x-raw,format=BGR,width={self.width},height={self.height},framerate={self.framerate}/1 !
@@ -87,31 +96,71 @@ class DeepStreamProcessor:
             h264parse !
             queue !
             flvmux streamable=true !
-            rtmpsink location='{self.rtmp_url}' sync=false
+            rtmpsink location={quoted_rtmp_url} sync=false
         """
         self.encode_pipeline = Gst.parse_launch(encode_pipeline_desc)
         self.appsrc = self.encode_pipeline.get_by_name("appsrc0")
+
+    def extract_frame_from_sample(self, sample):
+        caps = sample.get_caps()
+        if not caps or caps.get_size() == 0:
+            raise ValueError("Missing caps on decoded sample")
+
+        structure = caps.get_structure(0)
+        width = structure.get_value("width")
+        height = structure.get_value("height")
+        fmt = structure.get_value("format")
+        if fmt != "BGR":
+            raise ValueError(f"Unsupported decoded format: {fmt}")
+
+        buffer = sample.get_buffer()
+        success, map_info = buffer.map(Gst.MapFlags.READ)
+        if not success:
+            raise RuntimeError("Failed to map decoded buffer")
+
+        try:
+            expected_row_bytes = width * 3
+            if map_info.size < expected_row_bytes * height:
+                raise ValueError(
+                    f"Decoded buffer too small: got {map_info.size}, expected at least {expected_row_bytes * height}"
+                )
+
+            if map_info.size == expected_row_bytes * height:
+                stride = expected_row_bytes
+            elif map_info.size % height == 0 and (map_info.size // height) >= expected_row_bytes:
+                stride = map_info.size // height
+            else:
+                raise ValueError(
+                    f"Unable to derive row stride from buffer size {map_info.size} for {width}x{height} BGR frame"
+                )
+
+            frame_2d = np.frombuffer(map_info.data, dtype=np.uint8, count=height * stride).reshape(height, stride)
+            return frame_2d[:, :expected_row_bytes].reshape(height, width, 3).copy()
+        finally:
+            buffer.unmap(map_info)
+
+    def enqueue_frame(self, frame):
+        if self.frame_queue.full():
+            try:
+                self.frame_queue.get_nowait()
+            except queue.Empty:
+                pass
+
+        try:
+            self.frame_queue.put_nowait(frame)
+        except queue.Full:
+            self.logger.warning("Frame queue is still full after dropping the oldest frame.")
 
     def on_new_sample(self, sink):
         sample = sink.emit("pull-sample")
         if not sample:
             return Gst.FlowReturn.ERROR
 
-        buffer = sample.get_buffer()
-        success, map_info = buffer.map(Gst.MapFlags.READ)
-        if not success:
-            return Gst.FlowReturn.ERROR
-
         try:
-            frame_data = np.frombuffer(map_info.data, dtype=np.uint8).reshape(self.height, self.width, 3)
-            if not self.frame_queue.full():
-                self.frame_queue.put_nowait(frame_data)
-        except queue.Full:
-            self.logger.warning("Frame queue is full, dropping frame.")
+            frame_data = self.extract_frame_from_sample(sample)
+            self.enqueue_frame(frame_data)
         except Exception as e:
             self.logger.error(f"Failed to read decoded frame: {e}")
-        finally:
-            buffer.unmap(map_info)
 
         return Gst.FlowReturn.OK
 
@@ -210,9 +259,10 @@ class DeepStreamProcessor:
         if self.encode_pipeline:
             self.encode_pipeline.set_state(Gst.State.NULL)
 
-        if self.main_thread and self.main_thread.is_alive():
+        current_thread = threading.current_thread()
+        if self.main_thread and self.main_thread.is_alive() and self.main_thread is not current_thread:
             self.main_thread.join(timeout=5)
-        if self.processing_thread and self.processing_thread.is_alive():
+        if self.processing_thread and self.processing_thread.is_alive() and self.processing_thread is not current_thread:
             self.processing_thread.join(timeout=5)
 
         self.logger.info("DeepStream Pipeline has been stopped.")
