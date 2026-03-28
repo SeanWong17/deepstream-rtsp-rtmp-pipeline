@@ -1,10 +1,20 @@
 # Python DeepStream RTSP-to-RTMP 高性能视频处理管线
 
+[English README](README_EN.md)
+
 [![Python Version](https://img.shields.io/badge/Python-3.8%2B-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Docker](https://img.shields.io/badge/Docker-Supported-blue.svg)](https://www.docker.com/)
 
 一个基于 Python 和 NVIDIA DeepStream 的高性能视频处理脚手架，演示了如何构建一个从 RTSP 拉流、经由 GPU 解码处理、再到 GPU 编码推向 RTMP 服务器的完整管线。
+
+## 📁 项目结构
+
+- `main.py`: 核心管线实现，包含 RTSP 拉流、帧处理、RTMP 推流和停止控制。
+- `Dockerfile`: 基于 NVIDIA DeepStream 官方镜像构建运行环境。
+- `requirements.txt`: Python 侧额外依赖。
+- `README.md`: 中文说明文档。
+- `README_EN.md`: 英文说明文档。
 
 ## 📝 项目简介
 
